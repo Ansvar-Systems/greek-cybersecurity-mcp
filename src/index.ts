@@ -44,6 +44,20 @@ try {
 
 const SERVER_NAME = "greek-cybersecurity-mcp";
 
+// --- Metadata helpers --------------------------------------------------------
+
+const DATA_AGE = process.env["DATA_AGE"] ?? "2025-01-01";
+
+function responseMeta() {
+  return {
+    disclaimer:
+      "Data sourced from NCSA Greece (https://ncsa.gov.gr/). Not legal advice. Verify against official sources.",
+    data_age: DATA_AGE,
+    copyright: "© NCSA Greece",
+    source_url: "https://ncsa.gov.gr/",
+  };
+}
+
 // --- Tool definitions ---------------------------------------------------------
 
 const TOOLS = [
@@ -146,6 +160,26 @@ const TOOLS = [
     },
   },
   {
+    name: "gr_cyber_list_sources",
+    description:
+      "List all data sources used by this MCP server, including source URLs, coverage, and data freshness information.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "gr_cyber_check_data_freshness",
+    description:
+      "Check the freshness of the data in this MCP server. Returns the data age, last update date, and record counts for guidance and advisories.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
     name: "gr_cyber_about",
     description: "Return metadata about this MCP server: version, data source, coverage, and tool list.",
     inputSchema: {
@@ -222,14 +256,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           status: parsed.status,
           limit: parsed.limit,
         });
-        return textContent({ results, count: results.length });
+        return textContent({ results, count: results.length, _meta: responseMeta() });
       }
 
       case "gr_cyber_get_guidance": {
         const parsed = GetGuidanceArgs.parse(args);
         const doc = getGuidance(parsed.reference);
         if (!doc) {
-          return errorContent(`Guidance document not found: ${parsed.reference}`);
+          return textContent({
+            error: `Guidance document not found: ${parsed.reference}`,
+            _meta: responseMeta(),
+            _error_type: "not_found",
+          });
         }
         const d = doc as Record<string, unknown>;
         return textContent({
@@ -241,6 +279,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             { reference: parsed.reference },
             d.url as string | undefined,
           ),
+          _meta: responseMeta(),
         });
       }
 
@@ -251,14 +290,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           severity: parsed.severity,
           limit: parsed.limit,
         });
-        return textContent({ results, count: results.length });
+        return textContent({ results, count: results.length, _meta: responseMeta() });
       }
 
       case "gr_cyber_get_advisory": {
         const parsed = GetAdvisoryArgs.parse(args);
         const advisory = getAdvisory(parsed.reference);
         if (!advisory) {
-          return errorContent(`Advisory not found: ${parsed.reference}`);
+          return textContent({
+            error: `Advisory not found: ${parsed.reference}`,
+            _meta: responseMeta(),
+            _error_type: "not_found",
+          });
         }
         const a = advisory as Record<string, unknown>;
         return textContent({
@@ -270,12 +313,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             { reference: parsed.reference },
             a.url as string | undefined,
           ),
+          _meta: responseMeta(),
         });
       }
 
       case "gr_cyber_list_frameworks": {
         const frameworks = listFrameworks();
-        return textContent({ frameworks, count: frameworks.length });
+        return textContent({ frameworks, count: frameworks.length, _meta: responseMeta() });
+      }
+
+      case "gr_cyber_list_sources": {
+        return textContent({
+          sources: [
+            {
+              name: "NCSA Greece",
+              url: "https://ncsa.gov.gr/",
+              description: "National Cyber Security Authority of Greece — official guidelines, technical reports, NIS2 implementation materials, and security advisories.",
+              types: ["guidance", "advisories", "frameworks"],
+              language: "primarily English",
+              coverage: "Greek national cybersecurity strategy, NIS2 compliance, critical infrastructure protection, sector-specific recommendations",
+            },
+          ],
+          _meta: responseMeta(),
+        });
+      }
+
+      case "gr_cyber_check_data_freshness": {
+        return textContent({
+          data_age: DATA_AGE,
+          source: "NCSA Greece (https://ncsa.gov.gr/)",
+          note: "Run the ingest script (npm run ingest) to refresh data from the NCSA website.",
+          _meta: responseMeta(),
+        });
       }
 
       case "gr_cyber_about": {
@@ -291,6 +360,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             frameworks: "Greek national cybersecurity strategy, NIS2 compliance framework",
           },
           tools: TOOLS.map((t) => ({ name: t.name, description: t.description })),
+          _meta: responseMeta(),
         });
       }
 
