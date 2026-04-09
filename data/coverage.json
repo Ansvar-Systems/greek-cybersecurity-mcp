@@ -1,0 +1,39 @@
+{
+  "mcp": "eu.ansvar/greek-cybersecurity-mcp",
+  "source": "NCSA Greece",
+  "source_url": "https://ncsa.gov.gr/",
+  "language": "primarily English",
+  "data_age": "2025-01-01",
+  "series": [
+    {
+      "id": "NCSA",
+      "name": "NCSA National Guidelines",
+      "description": "National cybersecurity guidelines and technical reports published by NCSA Greece",
+      "document_types": ["technical_guideline", "standard", "recommendation"]
+    },
+    {
+      "id": "NIS2",
+      "name": "NIS2 Implementation Framework",
+      "description": "Greek national implementation of EU Directive 2022/2555 (NIS2)",
+      "document_types": ["technical_guideline", "sector_guide", "recommendation"]
+    },
+    {
+      "id": "GDPR",
+      "name": "GDPR Technical Measures",
+      "description": "Technical and organisational measures guidance for GDPR compliance",
+      "document_types": ["standard", "recommendation"]
+    }
+  ],
+  "document_types": [
+    { "id": "technical_guideline", "description": "Technical guidelines and implementation specifications" },
+    { "id": "sector_guide", "description": "Sector-specific cybersecurity guidance" },
+    { "id": "standard", "description": "National or harmonised standards references" },
+    { "id": "recommendation", "description": "Best-practice recommendations" }
+  ],
+  "advisory_severities": ["critical", "high", "medium", "low"],
+  "not_covered": [
+    "ENISA EU-level publications",
+    "Greek legislative texts",
+    "Vendor-specific CVE advisories"
+  ]
+}

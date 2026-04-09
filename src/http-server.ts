@@ -30,6 +30,7 @@ import {
   getAdvisory,
   listFrameworks,
 } from "./db.js";
+import { buildCitation } from "./utils/citation.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,33 +48,47 @@ try {
   // fallback
 }
 
+// --- Metadata helpers --------------------------------------------------------
+
+const DATA_AGE = process.env["DATA_AGE"] ?? "2025-01-01";
+
+function responseMeta() {
+  return {
+    disclaimer:
+      "Data sourced from NCSA Greece (https://ncsa.gov.gr/). Not legal advice. Verify against official sources.",
+    data_age: DATA_AGE,
+    copyright: "© NCSA Greece",
+    source_url: "https://ncsa.gov.gr/",
+  };
+}
+
 // --- Tool definitions (shared with index.ts) ---------------------------------
 
 const TOOLS = [
   {
     name: "gr_cyber_search_guidance",
     description:
-      "Full-text search across BSI guidelines and technical reports. Covers Technical Guidelines (TR series), IT-Grundschutz building blocks, BSI Standards, and recommendations.",
+      "Full-text search across NCSA (National Cyber Security Authority of Greece) guidelines and technical reports. Covers NIS2 implementation guidance, critical infrastructure protection, sector-specific cybersecurity recommendations, and GDPR technical measures. Published primarily in English.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        query: { type: "string", description: "Search query (e.g., 'TLS Kryptographie', 'IT-Grundschutz Server')" },
+        query: { type: "string", description: "Search query in English (e.g., 'NIS2 requirements', 'critical infrastructure', 'incident reporting', 'network security')" },
         type: {
           type: "string",
-          enum: ["technical_guideline", "it_grundschutz", "standard", "recommendation"],
+          enum: ["technical_guideline", "sector_guide", "standard", "recommendation"],
           description: "Filter by document type. Optional.",
         },
         series: {
           type: "string",
-          enum: ["TR", "IT-Grundschutz", "BSI-Standard"],
-          description: "Filter by BSI series. Optional.",
+          enum: ["NCSA", "NIS2", "GDPR"],
+          description: "Filter by guidance series. Optional.",
         },
         status: {
           type: "string",
           enum: ["current", "superseded", "draft"],
-          description: "Filter by document status. Optional.",
+          description: "Filter by document status. Defaults to returning all statuses.",
         },
-        limit: { type: "number", description: "Max results (default 20)." },
+        limit: { type: "number", description: "Maximum number of results to return. Defaults to 20." },
       },
       required: ["query"],
     },
@@ -81,11 +96,11 @@ const TOOLS = [
   {
     name: "gr_cyber_get_guidance",
     description:
-      "Get a specific BSI guidance document by reference (e.g., 'BSI TR-03116', 'BSI-Standard 200-1', 'SYS.1.1').",
+      "Get a specific NCSA guidance document by reference (e.g., 'NCSA-2023-01', 'NCSA-Guide-001').",
     inputSchema: {
       type: "object" as const,
       properties: {
-        reference: { type: "string", description: "BSI document reference" },
+        reference: { type: "string", description: "NCSA document reference" },
       },
       required: ["reference"],
     },
@@ -93,28 +108,28 @@ const TOOLS = [
   {
     name: "gr_cyber_search_advisories",
     description:
-      "Search BSI security advisories and alerts. Returns advisories with severity, affected products, and CVE references.",
+      "Search NCSA security advisories and alerts. Returns advisories with severity, affected products, and CVE references where available.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        query: { type: "string", description: "Search query (e.g., 'kritische Schwachstelle', 'Ransomware')" },
+        query: { type: "string", description: "Search query in English (e.g., 'critical vulnerability', 'ransomware', 'supply chain attack')" },
         severity: {
           type: "string",
           enum: ["critical", "high", "medium", "low"],
           description: "Filter by severity level. Optional.",
         },
-        limit: { type: "number", description: "Max results (default 20)." },
+        limit: { type: "number", description: "Maximum number of results to return. Defaults to 20." },
       },
       required: ["query"],
     },
   },
   {
     name: "gr_cyber_get_advisory",
-    description: "Get a specific BSI security advisory by reference (e.g., 'BSI-CB-K24-0001').",
+    description: "Get a specific NCSA security advisory by reference (e.g., 'NCSA-2024-001').",
     inputSchema: {
       type: "object" as const,
       properties: {
-        reference: { type: "string", description: "BSI advisory reference" },
+        reference: { type: "string", description: "NCSA advisory reference" },
       },
       required: ["reference"],
     },
@@ -122,7 +137,19 @@ const TOOLS = [
   {
     name: "gr_cyber_list_frameworks",
     description:
-      "List all BSI frameworks and standard series covered in this MCP.",
+      "List all NCSA frameworks and guidance series covered in this MCP, including the Greek national cybersecurity strategy and NIS2 implementation framework.",
+    inputSchema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "gr_cyber_list_sources",
+    description:
+      "List all data sources used by this MCP server, including source URLs, coverage, and data freshness information.",
+    inputSchema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "gr_cyber_check_data_freshness",
+    description:
+      "Check the freshness of the data in this MCP server. Returns the data age, last update date, and record counts for guidance and advisories.",
     inputSchema: { type: "object" as const, properties: {}, required: [] },
   },
   {
@@ -136,8 +163,8 @@ const TOOLS = [
 
 const SearchGuidanceArgs = z.object({
   query: z.string().min(1),
-  type: z.enum(["technical_guideline", "it_grundschutz", "standard", "recommendation"]).optional(),
-  series: z.enum(["TR", "IT-Grundschutz", "BSI-Standard"]).optional(),
+  type: z.enum(["technical_guideline", "sector_guide", "standard", "recommendation"]).optional(),
+  series: z.enum(["NCSA", "NIS2", "GDPR"]).optional(),
   status: z.enum(["current", "superseded", "draft"]).optional(),
   limit: z.number().int().positive().max(100).optional(),
 });
@@ -195,16 +222,31 @@ function createMcpServer(): Server {
             status: parsed.status,
             limit: parsed.limit,
           });
-          return textContent({ results, count: results.length });
+          return textContent({ results, count: results.length, _meta: responseMeta() });
         }
 
         case "gr_cyber_get_guidance": {
           const parsed = GetGuidanceArgs.parse(args);
           const doc = getGuidance(parsed.reference);
           if (!doc) {
-            return errorContent(`Guidance document not found: ${parsed.reference}`);
+            return textContent({
+              error: `Guidance document not found: ${parsed.reference}`,
+              _meta: responseMeta(),
+              _error_type: "not_found",
+            });
           }
-          return textContent(doc);
+          const d = doc as Record<string, unknown>;
+          return textContent({
+            ...doc,
+            _citation: buildCitation(
+              String(d.reference ?? parsed.reference),
+              String(d.title ?? d.reference ?? parsed.reference),
+              "gr_cyber_get_guidance",
+              { reference: parsed.reference },
+              d.url as string | undefined,
+            ),
+            _meta: responseMeta(),
+          });
         }
 
         case "gr_cyber_search_advisories": {
@@ -214,21 +256,61 @@ function createMcpServer(): Server {
             severity: parsed.severity,
             limit: parsed.limit,
           });
-          return textContent({ results, count: results.length });
+          return textContent({ results, count: results.length, _meta: responseMeta() });
         }
 
         case "gr_cyber_get_advisory": {
           const parsed = GetAdvisoryArgs.parse(args);
           const advisory = getAdvisory(parsed.reference);
           if (!advisory) {
-            return errorContent(`Advisory not found: ${parsed.reference}`);
+            return textContent({
+              error: `Advisory not found: ${parsed.reference}`,
+              _meta: responseMeta(),
+              _error_type: "not_found",
+            });
           }
-          return textContent(advisory);
+          const a = advisory as Record<string, unknown>;
+          return textContent({
+            ...advisory,
+            _citation: buildCitation(
+              String(a.reference ?? parsed.reference),
+              String(a.title ?? a.reference ?? parsed.reference),
+              "gr_cyber_get_advisory",
+              { reference: parsed.reference },
+              a.url as string | undefined,
+            ),
+            _meta: responseMeta(),
+          });
         }
 
         case "gr_cyber_list_frameworks": {
           const frameworks = listFrameworks();
-          return textContent({ frameworks, count: frameworks.length });
+          return textContent({ frameworks, count: frameworks.length, _meta: responseMeta() });
+        }
+
+        case "gr_cyber_list_sources": {
+          return textContent({
+            sources: [
+              {
+                name: "NCSA Greece",
+                url: "https://ncsa.gov.gr/",
+                description: "National Cyber Security Authority of Greece — official guidelines, technical reports, NIS2 implementation materials, and security advisories.",
+                types: ["guidance", "advisories", "frameworks"],
+                language: "primarily English",
+                coverage: "Greek national cybersecurity strategy, NIS2 compliance, critical infrastructure protection, sector-specific recommendations",
+              },
+            ],
+            _meta: responseMeta(),
+          });
+        }
+
+        case "gr_cyber_check_data_freshness": {
+          return textContent({
+            data_age: DATA_AGE,
+            source: "NCSA Greece (https://ncsa.gov.gr/)",
+            note: "Run the ingest script (npm run ingest) to refresh data from the NCSA website.",
+            _meta: responseMeta(),
+          });
         }
 
         case "gr_cyber_about": {
@@ -236,9 +318,15 @@ function createMcpServer(): Server {
             name: SERVER_NAME,
             version: pkgVersion,
             description:
-              "NCSA (National Cyber Security Authority of Greece) MCP server. Provides access to Greek national cybersecurity guidelines, NIS2 implementation materials, and security advisories.",
+              "NCSA (National Cyber Security Authority of Greece) MCP server. Provides access to Greek national cybersecurity guidelines, technical reports, NIS2 implementation materials, critical infrastructure protection guidance, and security advisories. Content primarily in English.",
             data_source: "NCSA Greece (https://ncsa.gov.gr/)",
+            coverage: {
+              guidance: "National cybersecurity guidelines, NIS2 implementation guidance, critical infrastructure protection, sector-specific recommendations",
+              advisories: "NCSA security advisories and vulnerability alerts",
+              frameworks: "Greek national cybersecurity strategy, NIS2 compliance framework",
+            },
             tools: TOOLS.map((t) => ({ name: t.name, description: t.description })),
+            _meta: responseMeta(),
           });
         }
 

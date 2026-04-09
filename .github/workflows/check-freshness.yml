@@ -1,0 +1,59 @@
+name: Check Data Freshness
+
+on:
+  schedule:
+    # Run every Monday at 08:00 UTC
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+jobs:
+  check-freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Check data freshness
+        env:
+          NCSA_DB_PATH: data/ncsa.db
+        run: |
+          node -e "
+          import('./dist/src/db.js').then(({ listFrameworks, getDb }) => {
+            const db = getDb();
+            const guidanceCount = db.prepare('SELECT COUNT(*) as n FROM guidance').get();
+            const advisoriesCount = db.prepare('SELECT COUNT(*) as n FROM advisories').get();
+            const latestGuidance = db.prepare('SELECT MAX(date) as d FROM guidance').get();
+            const latestAdvisory = db.prepare('SELECT MAX(date) as d FROM advisories').get();
+            console.log(JSON.stringify({
+              guidance_count: guidanceCount.n,
+              advisories_count: advisoriesCount.n,
+              latest_guidance_date: latestGuidance.d,
+              latest_advisory_date: latestAdvisory.d,
+              checked_at: new Date().toISOString(),
+            }, null, 2));
+          });
+          "
+
+      - name: Open issue if data is stale
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Data freshness check failed — NCSA data may be stale',
+              body: 'The scheduled data freshness check failed. Please run `npm run ingest` to refresh NCSA data and rebuild the Docker image.',
+              labels: ['data-freshness', 'automated'],
+            });
