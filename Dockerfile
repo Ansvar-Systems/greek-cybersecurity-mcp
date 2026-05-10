@@ -5,12 +5,18 @@
 # Run:    docker run --rm -p 3000:3000 greek-cybersecurity-mcp
 # ─────────────────────────────────────────────────────────────────────────────
 
-# --- Stage 1: Build TypeScript ---
+# --- Stage 1: Build TypeScript + native deps ---
 FROM node:20-slim AS builder
+
+# Install build tools needed for better-sqlite3 native binding
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+# Run full install (no --ignore-scripts) so better-sqlite3's postinstall builds the .node binding
+RUN npm ci
 COPY tsconfig.json ./
 COPY src/ src/
 RUN npm run build
@@ -22,10 +28,13 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NCSA_DB_PATH=/app/data/ncsa.db
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-
+# Reuse the builder's node_modules so the better-sqlite3 native binding survives
+COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist/ dist/
+COPY package.json package-lock.json* ./
+
+# DB baked from CI's data/database.db (workflow gunzips database.db.gz from the Release)
+COPY data/database.db data/ncsa.db
 
 # Non-root user for security
 RUN addgroup --system --gid 1001 mcp && \
