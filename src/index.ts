@@ -269,7 +269,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             _error_type: "not_found",
           });
         }
-        const d = doc as Record<string, unknown>;
+        const d = doc as unknown as Record<string, unknown>;
         return textContent({
           ...doc,
           _citation: buildCitation(
@@ -303,7 +303,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             _error_type: "not_found",
           });
         }
-        const a = advisory as Record<string, unknown>;
+        const a = advisory as unknown as Record<string, unknown>;
         return textContent({
           ...advisory,
           _citation: buildCitation(
